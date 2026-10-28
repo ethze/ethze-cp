@@ -1,0 +1,7 @@
+allowBuilds:
+  "@parcel/watcher": true
+peerDependencyRules:
+  allowedVersions:
+    "@tensorflow/tfjs-core": "4"
+    "@tensorflow/tfjs-converter": "4"
+    "@tensorflow/tfjs-backend-webgl": "4"

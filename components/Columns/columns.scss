@@ -1,0 +1,49 @@
+.cols {
+  display: flex;
+}
+
+.col {
+  width: 309px;
+  flex: none;
+  min-width: 0;
+}
+
+.col .group {
+  margin-bottom: 24px;
+}
+
+.col h6 {
+  font-size: var(--fs);
+  font-weight: 400;
+  color: var(--dim);
+}
+
+.col a,
+.col p {
+  display: block;
+  width: fit-content;
+  cursor: pointer;
+  transition: color 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (hover: hover) {
+  .col a:hover,
+  .col p:hover {
+    color: #f00;
+  }
+}
+
+@media (max-width: 900px) {
+  .cols {
+    flex-wrap: wrap;
+    row-gap: 24px;
+  }
+
+  .col {
+    width: 50%;
+  }
+
+  .col:first-child {
+    width: 100%;
+  }
+}

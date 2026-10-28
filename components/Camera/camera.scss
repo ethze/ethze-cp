@@ -1,0 +1,121 @@
+#camwrap {
+  position: fixed;
+  top: calc(24px + env(safe-area-inset-top, 0px));
+  right: max(24px, env(safe-area-inset-right, 0px));
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+#cam {
+  font: inherit;
+  font-size: clamp(9px, calc(var(--fs) * 0.8), 12px);
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg);
+  background: rgba(17, 17, 17, 0.6);
+  border: 1px solid var(--dim);
+  border-radius: 0;
+  height: calc(var(--fs) * 1.6);
+  padding: 0 clamp(8px, 1vw, 12px);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: color 0.45s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.45s,
+    background 0.45s;
+}
+
+@media (hover: hover) {
+  #cam:hover {
+    color: #f00;
+    border-color: #f00;
+  }
+}
+
+#cam:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+#cb {
+  display: grid;
+  gap: 4px;
+  width: max-content;
+}
+
+#hint {
+  width: 0;
+  min-width: 100%;
+  font-size: 9px;
+  line-height: 1.2;
+  color: var(--dim);
+  text-align: left;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+#hint span {
+  display: inline-block;
+}
+
+#lg {
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  height: calc(var(--fs) * 0.78 * 1.4 * 10);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: calc(var(--fs) * 0.78);
+  line-height: 1.4;
+  color: #fff;
+  text-align: left;
+}
+
+#lg div {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+}
+
+#vid {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#fx,
+#ov {
+  display: none;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+}
+
+#fx {
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+
+@media (max-width: 900px) {
+  #camwrap {
+    top: calc(16px + env(safe-area-inset-top, 0px));
+    right: 16px;
+  }
+
+  #lg {
+    display: none;
+  }
+}

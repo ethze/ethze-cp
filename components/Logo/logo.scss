@@ -1,0 +1,42 @@
+.logo {
+  width: 580px;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.anim-target {
+  animation: slideFastLoop 4.6s linear infinite backwards;
+}
+
+.anim-g2 {
+  animation-delay: 0.04s;
+}
+
+.anim-g3 {
+  animation-delay: 0.12s;
+}
+
+@keyframes slideFastLoop {
+  0% {
+    transform: translateX(848px);
+    animation-timing-function: cubic-bezier(0, 1, 0.12, 1);
+  }
+
+  34%,
+  66% {
+    transform: translateX(0);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.4);
+  }
+
+  86%,
+  100% {
+    transform: translateX(-848px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-target {
+    animation: none;
+  }
+}
