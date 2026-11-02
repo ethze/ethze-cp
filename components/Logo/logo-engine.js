@@ -22,7 +22,7 @@ export function initLogo(svg) {
   var SHUT = 1;
   var MAXN = 40;
   var STROKE = 4;
-  var BG = [17 / 255, 17 / 255, 17 / 255];
+  var BG = [0, 0, 0];
 
   var verts = [];
   var groups = [];

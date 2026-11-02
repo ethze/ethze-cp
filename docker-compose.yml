@@ -1,0 +1,7 @@
+services:
+  ethze-cp:
+    build: .
+    container_name: ethze-cp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
