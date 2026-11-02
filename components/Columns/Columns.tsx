@@ -4,7 +4,13 @@ export default function Columns() {
       <div className="col">
         <div className="group">
           <h6>Contact</h6>
-          <p>ethze.net@gmail.com</p>
+          <a
+            href="https://mail.google.com/mail/?view=cm&fs=1&to=hq@ethze.net"
+            target="_blank"
+            rel="noopener"
+          >
+            hq@ethze.net
+          </a>
           <p>+62 85925327256</p>
         </div>
         <div className="group">
