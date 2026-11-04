@@ -14,6 +14,9 @@ importers:
       '@mediapipe/hands':
         specifier: 0.4.1675469240
         version: 0.4.1675469240
+      '@mediapipe/pose':
+        specifier: ^0.5.1675469404
+        version: 0.5.1675469404
       '@techstark/opencv-js':
         specifier: 4.12.0-release.1
         version: 4.12.0-release.1
@@ -26,6 +29,9 @@ importers:
       react-dom:
         specifier: 19.3.1
         version: 19.3.1(react@19.3.1)
+      three:
+        specifier: ^0.187.0
+        version: 0.187.0
     devDependencies:
       '@types/node':
         specifier: 24.19.2
@@ -215,6 +221,9 @@ packages:
 
   '@mediapipe/hands@0.4.1675469240':
     resolution: {integrity: sha512-GxoZvL1mmhJxFxjuyj7vnC++JIuInGznHBin5c7ZSq/RbcnGyfEcJrkM/bMu5K1Mz/2Ko+vEX6/+wewmEHPrHg==}
+
+  '@mediapipe/pose@0.5.1675469404':
+    resolution: {integrity: sha512-DFZsNWTsSphRIZppnUCuunzBiHP2FdJXR9ehc7mMi4KG+oPaOH0Em3d6kr7Py+TSyTXC1doH88KcF28k2sBxsQ==}
 
   '@next/env@16.4.3':
     resolution: {integrity: sha512-a7tz1QCcWWkwC/rPJcPMJk/UNRu9CFhDd3OHYE5hddbJrs8BqRTalxI6GlKCWEGzRLHN+S/B7a4PAHCtm25aBQ==}
@@ -495,6 +504,9 @@ packages:
       babel-plugin-macros:
         optional: true
 
+  three@0.187.0:
+    resolution: {integrity: sha512-Qiu7R+Cmh8CstZsY1uJOSWnVlfo7ZtNLV7mF8Jltk3LB3AtDu9cRZlcnRKkAk8Y4z6KKw35z7Y7Urd7jWY8etA==}
+
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
@@ -623,6 +635,8 @@ snapshots:
   '@mediapipe/face_mesh@0.4.1633559619': {}
 
   '@mediapipe/hands@0.4.1675469240': {}
+
+  '@mediapipe/pose@0.5.1675469404': {}
 
   '@next/env@16.4.3': {}
 
@@ -854,6 +868,8 @@ snapshots:
     dependencies:
       client-only: 0.0.1
       react: 19.3.1
+
+  three@0.187.0: {}
 
   tslib@2.8.1: {}
 

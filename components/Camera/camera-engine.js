@@ -13,10 +13,16 @@ export function initCamera() {
   var loadPct = document.getElementById("cam-loadpct");
   if (!btn || !lg || !video || !fx || !ov) return;
 
-  var fc = fx.getContext("2d");
+  var fc = fx.getContext("2d", { willReadFrequently: true });
   var oc = ov.getContext("2d");
   var sc = document.createElement("canvas");
   var sx = sc.getContext("2d", { willReadFrequently: true });
+  var wingsCv = document.createElement("canvas");
+  var wc = wingsCv.getContext("2d");
+  var segCv = document.createElement("canvas");
+  var segCtx = segCv.getContext("2d");
+  var hasSegMask = false;
+  var wingGlCv = document.createElement("canvas");
   var W = 480;
   var H = 270;
   var HW = 240;
@@ -47,6 +53,19 @@ export function initCamera() {
   var eye = null;
   var eyeT = null;
   var noFace = 99;
+  var pdet = null;
+  var pb = false;
+  var pose = null;
+  var poseT = null;
+  var noPose = 99;
+  var hadPose = false;
+  var wingRenderer = null;
+  var wingScene = null;
+  var wingCam = null;
+  var wingRoot = null;
+  var leftWingPivot = null;
+  var rightWingPivot = null;
+  var wingRimLight = null;
   var gb = [];
   var tt = 0;
   var wx = new Float32Array(W);
@@ -209,7 +228,7 @@ export function initCamera() {
       await yieldTick(20);
 
       // MediaPipe FaceMesh WASM runtime
-      setProgress(80, "LOADING MEDIAPIPE FACE...");
+      setProgress(70, "LOADING MEDIAPIPE FACE...");
       try {
         if (!window.FaceMesh) {
           await loadScript("/vendor/face_mesh/face_mesh.js");
@@ -259,6 +278,276 @@ export function initCamera() {
         log("mediapipe face ready -> eye tracking online");
       } catch (e) {
         log("eye model failed");
+      }
+      await yieldTick(20);
+
+      // MediaPipe Pose WASM runtime (shoulder tracking)
+      setProgress(85, "LOADING MEDIAPIPE POSE...");
+      try {
+        if (!window.Pose) {
+          await loadScript("/vendor/pose/pose.js");
+        }
+        var mpPose = new window.Pose({
+          locateFile: function (file) {
+            return "/vendor/pose/" + file;
+          },
+        });
+        mpPose.setOptions({
+          modelComplexity: 0,
+          smoothLandmarks: true,
+          enableSegmentation: true,
+          smoothSegmentation: true,
+          selfieMode: false,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
+        var latestPose = null;
+        var refSw = 0;
+        var refRatio = 1.15;
+        var wasBack = false;
+        mpPose.onResults(function (results) {
+          var w = (results.image && results.image.width) || W;
+          var h = (results.image && results.image.height) || H;
+          if (results.segmentationMask && segCtx) {
+            if (segCv.width !== w || segCv.height !== h) {
+              segCv.width = w;
+              segCv.height = h;
+            }
+            segCtx.clearRect(0, 0, w, h);
+            segCtx.drawImage(results.segmentationMask, 0, 0, w, h);
+            // Boost mask opacity so the body/arms/hands silhouette is 100% solid
+            segCtx.drawImage(segCv, 0, 0);
+            segCtx.drawImage(segCv, 0, 0);
+            hasSegMask = true;
+          }
+          var lms = results.poseLandmarks;
+          var out = null;
+          if (lms && lms[11] && lms[12]) {
+            var v11 = lms[11].visibility === undefined ? 1 : lms[11].visibility;
+            var v12 = lms[12].visibility === undefined ? 1 : lms[12].visibility;
+            if (v11 > 0.35 && v12 > 0.35) {
+              // s1 = anatomical Left Shoulder (11), s2 = anatomical Right Shoulder (12)
+              var s1 = {
+                x: lms[11].x * w,
+                y: lms[11].y * h,
+                z: lms[11].z || 0,
+              };
+              var s2 = {
+                x: lms[12].x * w,
+                y: lms[12].y * h,
+                z: lms[12].z || 0,
+              };
+              var pL = s1.x < s2.x ? s1 : s2;
+              var pR = s1.x < s2.x ? s2 : s1;
+              var cx = (s1.x + s2.x) * 0.5;
+              var cy = (s1.y + s2.y) * 0.5;
+
+              var sw2d = Math.hypot(s1.x - s2.x, s1.y - s2.y);
+
+              // Measure vertical neck/head distance (invariant to sideways rotation)
+              var headDy = 0;
+              var headIds = [0, 7, 8];
+              var hy = 0;
+              var hc = 0;
+              for (var hi = 0; hi < headIds.length; hi++) {
+                var hp = lms[headIds[hi]];
+                if (hp && (hp.visibility === undefined || hp.visibility > 0.35)) {
+                  hy += hp.y * h;
+                  hc++;
+                }
+              }
+              if (hc > 0) {
+                hy /= hc;
+                headDy = Math.abs(cy - hy);
+              }
+
+              // Calibrate reference shoulder width ONLY when facing front with full shoulder spread
+              if (s1.x - s2.x > Math.max(28, headDy * 0.85)) {
+                refSw = refSw > 0 ? refSw * 0.82 + sw2d * 0.18 : sw2d;
+                if (headDy > 12) {
+                  var rNow = sw2d / headDy;
+                  refRatio = refRatio * 0.85 + rNow * 0.15;
+                }
+              }
+
+              // Hold the calibrated frontal width when turning sideways or facing back, capped so it never inflates
+              var holdSw = headDy > 12 ? headDy * refRatio : refSw;
+              if (refSw > 0) {
+                holdSw = Math.min(refSw, Math.max(refSw * 0.85, holdSw));
+              }
+              var sw = refSw > 0 ? Math.min(refSw, Math.max(sw2d, holdSw)) : sw2d;
+
+              if (sw > 18) {
+                // On the mirrored canvas, facing camera => s1.x > s2.x (dx > 0).
+                // Facing backward (madep belakang) => s1.x < s2.x (dx < 0).
+                var dx = s1.x - s2.x;
+                if (!wasBack && dx < -sw * 0.08) {
+                  wasBack = true;
+                } else if (wasBack && dx > sw * 0.08) {
+                  wasBack = false;
+                }
+                var isBack = wasBack;
+
+                var roll = Math.max(
+                  -0.65,
+                  Math.min(0.65, Math.atan2(pR.y - pL.y, Math.max(24, pR.x - pL.x)))
+                );
+                // Smooth 3D yaw that tilts sideways without collapsing the wingspan, and flips 180 deg when facing back
+                var sideTurn = Math.max(
+                  -0.55,
+                  Math.min(0.55, ((s1.z - s2.z) * w) / Math.max(30, sw) * 0.75)
+                );
+                var yaw = isBack ? Math.PI - sideTurn : sideTurn;
+
+                var arms = [];
+                var armPairs = [
+                  [11, 13, 15, 19],
+                  [12, 14, 16, 20],
+                ];
+                for (var ap = 0; ap < armPairs.length; ap++) {
+                  var chain = [];
+                  for (var ai = 0; ai < armPairs[ap].length; ai++) {
+                    var pt = lms[armPairs[ap][ai]];
+                    if (pt && (pt.visibility === undefined || pt.visibility > 0.35)) {
+                      chain.push({ x: pt.x * w, y: pt.y * h });
+                    }
+                  }
+                  if (chain.length >= 2) arms.push(chain);
+                }
+                out = {
+                  cx: cx,
+                  cy: cy,
+                  sw: sw,
+                  roll: roll,
+                  yaw: yaw,
+                  isBack: isBack,
+                  pL: pL,
+                  pR: pR,
+                  arms: arms,
+                };
+              }
+            }
+          }
+          latestPose = out;
+        });
+        await mpPose.initialize();
+        pdet = {
+          estimatePose: async function (input) {
+            await mpPose.send({ image: input });
+            return latestPose;
+          },
+          dispose: function () {
+            mpPose.close();
+          },
+        };
+        log("mediapipe pose ready -> shoulder & body mask online");
+      } catch (e) {
+        log("pose model failed");
+      }
+
+      // Three.js 3D Angel Wings (/models/angel_wings.glb)
+      setProgress(94, "LOADING 3D ANGEL WINGS...");
+      if (wingsCv) {
+        try {
+          var THREE = await import("three");
+          var gltfMod = await import("three/examples/jsm/loaders/GLTFLoader.js");
+          var GLTFLoader = gltfMod.GLTFLoader;
+
+          wingRenderer = new THREE.WebGLRenderer({
+            canvas: wingGlCv,
+            alpha: true,
+            antialias: true,
+          });
+          wingRenderer.setPixelRatio(1);
+          wingRenderer.setClearColor(0x000000, 0);
+
+          wingScene = new THREE.Scene();
+          wingCam = new THREE.PerspectiveCamera(45, W / Math.max(1, H), 1, 5000);
+          wingCam.position.set(0, 0, H / 2 / Math.tan((45 * Math.PI) / 360));
+          wingRenderer.setSize(W, H, false);
+          wingsCv.width = W;
+          wingsCv.height = H;
+
+          var amb = new THREE.AmbientLight(0xffffff, 0.38);
+          wingScene.add(amb);
+
+          var keyLight = new THREE.DirectionalLight(0xffffff, 1.15);
+          keyLight.position.set(160, 340, 380);
+          wingScene.add(keyLight);
+
+          var backLight = new THREE.DirectionalLight(0xffffff, 1.05);
+          backLight.position.set(-160, 320, -380);
+          wingScene.add(backLight);
+
+          wingRimLight = new THREE.PointLight(0xff1a1a, 0.8, 1800);
+          wingRimLight.position.set(0, 60, -160);
+          wingScene.add(wingRimLight);
+
+          var gltf = await new Promise(function (resolve, reject) {
+            new GLTFLoader().load("/models/angel_wings.glb", resolve, undefined, reject);
+          });
+
+          wingRoot = new THREE.Group();
+          wingRoot.rotation.order = "ZXY";
+          wingRoot.visible = false;
+          wingScene.add(wingRoot);
+
+          var wingAssembly = new THREE.Group();
+          // Rotate 180 deg around Y so the front of the wings faces the camera (+Z) when facing front
+          wingAssembly.rotation.y = Math.PI;
+          wingAssembly.position.set(0, 0.5, 0);
+          wingRoot.add(wingAssembly);
+
+          var posWing = gltf.scene.getObjectByName("polySurface2197");
+          var negWing = gltf.scene.getObjectByName("polySurface2631");
+
+          gltf.scene.traverse(function (child) {
+            if (child.isMesh && child.material) {
+              child.material.side = THREE.DoubleSide;
+              child.material.depthWrite = true;
+              if (child.material.emissive) {
+                child.material.emissive.setHex(0x000000);
+                child.material.emissiveIntensity = 0;
+              }
+              if (child.material.color) {
+                child.material.color.setHex(0xb5b5b5);
+              }
+              if (child.material.roughness !== undefined) {
+                child.material.roughness = 0.78;
+              }
+              if (child.material.metalness !== undefined) {
+                child.material.metalness = 0.12;
+              }
+              if (child.material.transparent) {
+                child.material.alphaTest = 0.08;
+              }
+              child.material.needsUpdate = true;
+            }
+          });
+
+          rightWingPivot = new THREE.Group();
+          leftWingPivot = new THREE.Group();
+
+          if (posWing && negWing) {
+            rightWingPivot.position.set(0.75, 0, 0);
+            posWing.position.set(-0.75, -16.4, -0.4);
+            rightWingPivot.add(posWing);
+
+            leftWingPivot.position.set(-0.75, 0, 0);
+            negWing.position.set(0.75, -16.4, -0.4);
+            leftWingPivot.add(negWing);
+
+            wingAssembly.add(rightWingPivot);
+            wingAssembly.add(leftWingPivot);
+          } else {
+            gltf.scene.position.set(0, -16.4, -0.4);
+            wingAssembly.add(gltf.scene);
+          }
+
+          log("3d angel wings ready -> attached behind body");
+        } catch (e) {
+          log("3d wings failed to load");
+        }
       }
 
       setProgress(100, "ALL AI ONLINE");
@@ -330,8 +619,14 @@ export function initCamera() {
     H = Math.round((W * video.videoHeight) / video.videoWidth) || 270;
     HW = W >> 1;
     HH = H >> 1;
-    sc.width = fx.width = W;
-    sc.height = fx.height = H;
+    sc.width = fx.width = wingsCv.width = segCv.width = W;
+    sc.height = fx.height = wingsCv.height = segCv.height = H;
+    if (wingRenderer && wingCam) {
+      wingRenderer.setSize(W, H, false);
+      wingCam.aspect = W / Math.max(1, H);
+      wingCam.position.z = H / 2 / Math.tan((45 * Math.PI) / 360);
+      wingCam.updateProjectionMatrix();
+    }
     prev = new Uint8ClampedArray(W * H);
     gr = new Uint8Array(W * H);
     mo = new Uint8Array(W * H);
@@ -382,6 +677,18 @@ export function initCamera() {
     eye = null;
     eyeT = null;
     noFace = 99;
+    pose = null;
+    poseT = null;
+    noPose = 99;
+    hadPose = false;
+    hasSegMask = false;
+    if (wingRoot && wingRenderer && wingScene && wingCam) {
+      wingRoot.visible = false;
+      wingRenderer.clear();
+    }
+    if (wc && wingsCv) {
+      wc.clearRect(0, 0, wingsCv.width, wingsCv.height);
+    }
     gb = [];
     lastBlobN = -1;
     hadHand = false;
@@ -559,7 +866,92 @@ export function initCamera() {
     sx.scale(-1, 1);
     sx.drawImage(video, 0, 0, W, H);
     sx.restore();
-    var im = sx.getImageData(0, 0, W, H);
+
+    fc.drawImage(sc, 0, 0, W, H);
+
+    // Render 3D Angel Wings behind the body/arms/hands (or on the back when facing away) BEFORE the glitch/mono pass
+    if (wingRenderer && wingScene && wingCam && wingRoot && wc && wingsCv && pose) {
+      wc.clearRect(0, 0, W, H);
+      wingRoot.visible = true;
+      var wScale = (pose.sw / 4.7) * (pose.isBack ? 0.85 : 1.0);
+      var wy = pose.isBack ? pose.cy + pose.sw * 0.08 : pose.cy;
+      wingRoot.position.set(pose.cx - W * 0.5, H * 0.5 - wy, 0);
+      wingRoot.scale.setScalar(wScale);
+      wingRoot.rotation.set(pose.isBack ? -0.06 : 0.06, pose.yaw, -pose.roll);
+
+      var flapPhase = tt * (0.9 + kS * 1.4);
+      var flapY = Math.sin(flapPhase) * (0.22 + kS * 0.25) - 0.08;
+      var flapZ = Math.cos(flapPhase) * (0.06 + kS * 0.08);
+      if (rightWingPivot && leftWingPivot) {
+        rightWingPivot.rotation.set(0, flapY, flapZ);
+        leftWingPivot.rotation.set(0, -flapY, -flapZ);
+      }
+      if (wingRimLight) {
+        wingRimLight.intensity = 0.6 + kS * 1.8;
+      }
+      wingRenderer.render(wingScene, wingCam);
+
+      wc.globalCompositeOperation = "source-over";
+      wc.drawImage(wingGlCv, 0, 0, W, H);
+
+      wc.globalCompositeOperation = "destination-out";
+      if (pose.isBack) {
+        // When facing backward (madep belakang), the back/punggung faces the camera so wings sit ON TOP of the back.
+        // Only mask the head above the neck so the back of the head stays in front of the upper wing arches.
+        if (hasSegMask) {
+          var neckY = Math.max(0, Math.round(pose.cy - pose.sw * 0.14));
+          if (neckY > 0) {
+            wc.drawImage(segCv, 0, 0, W, neckY, 0, 0, W, neckY);
+          }
+        }
+      } else {
+        // When facing front/side, cut out the person's real body, arms, and hands silhouette so wings stay strictly behind
+        if (hasSegMask) {
+          wc.drawImage(segCv, 0, 0, W, H);
+        }
+        wc.save();
+        wc.strokeStyle = "#000";
+        wc.fillStyle = "#000";
+        wc.lineCap = "round";
+        wc.lineJoin = "round";
+        if (pose.arms && pose.arms.length) {
+          wc.lineWidth = Math.max(14, pose.sw * 0.24);
+          pose.arms.forEach(function (arm) {
+            wc.beginPath();
+            arm.forEach(function (pt, idx) {
+              idx ? wc.lineTo(pt.x, pt.y) : wc.moveTo(pt.x, pt.y);
+            });
+            wc.stroke();
+          });
+        }
+        if (hand && hand.kp) {
+          wc.lineWidth = Math.max(10, pose.sw * 0.14);
+          CH.forEach(function (c) {
+            wc.beginPath();
+            c.forEach(function (id, j) {
+              var P = hand.kp[id];
+              j ? wc.lineTo(P.x, P.y) : wc.moveTo(P.x, P.y);
+            });
+            wc.stroke();
+          });
+          var palmIds = [0, 1, 5, 9, 13, 17];
+          wc.beginPath();
+          palmIds.forEach(function (id, j) {
+            var P = hand.kp[id];
+            if (!P) return;
+            j ? wc.lineTo(P.x, P.y) : wc.moveTo(P.x, P.y);
+          });
+          wc.closePath();
+          wc.fill();
+        }
+        wc.restore();
+      }
+      wc.globalCompositeOperation = "source-over";
+
+      fc.drawImage(wingsCv, 0, 0, W, H);
+    }
+
+    var im = fc.getImageData(0, 0, W, H);
     var d = im.data;
     var n = W * H;
     var k = kS;
@@ -696,7 +1088,7 @@ export function initCamera() {
     });
 
     if (cvOk && fr % 2 === 0) track();
-    if (detector && !hb && fr % 2 === 0) {
+    if (detector && !hb && fr % 3 === 0) {
       hb = true;
       detector
         .estimateHands(sc)
@@ -778,11 +1170,28 @@ export function initCamera() {
           hb = false;
         });
     }
-    if (hand && performance.now() - lastHandT > 250) {
+    if (hand && performance.now() - lastHandT > 280) {
       hand = null;
       kT = 0.1;
     }
-    if (fdet && !fb && fr % 2 === 1) {
+    if (pdet && !pb && fr % 3 === 1) {
+      pb = true;
+      pdet
+        .estimatePose(sc)
+        .then(function (p) {
+          if (p) {
+            poseT = p;
+            noPose = 0;
+          } else if (++noPose > 8) {
+            poseT = null;
+          }
+          pb = false;
+        })
+        .catch(function () {
+          pb = false;
+        });
+    }
+    if (fdet && !fb && fr % 3 === 2) {
       fb = true;
       fdet
         .estimateFaces(sc)
@@ -832,12 +1241,45 @@ export function initCamera() {
     } else {
       eye = null;
     }
+    if (poseT) {
+      if (!pose) {
+        pose = {
+          cx: poseT.cx,
+          cy: poseT.cy,
+          sw: poseT.sw,
+          roll: poseT.roll,
+          yaw: poseT.yaw,
+          isBack: !!poseT.isBack,
+          lx: poseT.pL.x,
+          ly: poseT.pL.y,
+          rx: poseT.pR.x,
+          ry: poseT.pR.y,
+          arms: poseT.arms || [],
+        };
+      } else {
+        pose.cx += (poseT.cx - pose.cx) * 0.35;
+        pose.cy += (poseT.cy - pose.cy) * 0.35;
+        pose.sw += (poseT.sw - pose.sw) * 0.35;
+        pose.roll += (poseT.roll - pose.roll) * 0.3;
+        var dYaw = ((poseT.yaw - pose.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        pose.yaw += dYaw * 0.25;
+        pose.isBack = !!poseT.isBack;
+        pose.lx += (poseT.pL.x - pose.lx) * 0.35;
+        pose.ly += (poseT.pL.y - pose.ly) * 0.35;
+        pose.rx += (poseT.pR.x - pose.rx) * 0.35;
+        pose.ry += (poseT.pR.y - pose.ry) * 0.35;
+        pose.arms = poseT.arms || [];
+      }
+    } else {
+      pose = null;
+    }
 
     var cw = ov.width;
     var ch = ov.height;
     var sS = Math.max(cw / W, ch / H);
     var ox = (cw - W * sS) / 2;
     var oy = (ch - H * sS) / 2;
+
     oc.clearRect(0, 0, cw, ch);
     oc.lineWidth = 1;
     oc.font = "12px monospace";
@@ -932,6 +1374,25 @@ export function initCamera() {
           (eye.h * sS).toFixed(0)
       );
     }
+    if (pose && !hadPose) {
+      hadPose = true;
+      log("Shoulders locked -> 3D wings active");
+    }
+    if (!pose && hadPose) {
+      hadPose = false;
+      log("Shoulders lost");
+    }
+    if (pose && fr % 40 === 15) {
+      log(
+        "Wings  x:" +
+          (ox + pose.cx * sS).toFixed(0) +
+          " y:" +
+          (oy + pose.cy * sS).toFixed(0) +
+          "  span:" +
+          (pose.sw * sS * 4.2).toFixed(0) +
+          "px"
+      );
+    }
 
     if (blobs.length > 1) {
       oc.strokeStyle = "rgba(255,255,255,.55)";
@@ -961,6 +1422,25 @@ export function initCamera() {
       box(b, j ? "#fff" : "#f00", "");
     });
     if (eye) box(eye, "#fff", "EYE ");
+    if (pose) {
+      var lxS = ox + pose.lx * sS;
+      var lyS = oy + pose.ly * sS;
+      var rxS = ox + pose.rx * sS;
+      var ryS = oy + pose.ry * sS;
+      var mxS = ox + pose.cx * sS;
+      var myS = oy + pose.cy * sS;
+      oc.strokeStyle = "rgba(255,255,255,.35)";
+      oc.beginPath();
+      oc.moveTo(lxS, lyS);
+      oc.lineTo(rxS, ryS);
+      oc.stroke();
+      oc.fillStyle = "#f00";
+      oc.fillRect(lxS - 2, lyS - 2, 5, 5);
+      oc.fillRect(rxS - 2, ryS - 2, 5, 5);
+      oc.fillStyle = "#fff";
+      oc.fillRect(mxS - 2, myS - 2, 4, 4);
+      oc.fillText("WINGS", mxS + 8, myS + 4);
+    }
     if (hand) {
       var ax = ox + hand.a.x * sS;
       var ay = oy + hand.a.y * sS;
@@ -1012,8 +1492,15 @@ export function initCamera() {
     if (ro) ro.disconnect();
     if (detector && detector.dispose) detector.dispose();
     if (fdet && fdet.dispose) fdet.dispose();
+    if (pdet && pdet.dispose) pdet.dispose();
+    if (wingRenderer && wingRenderer.dispose) wingRenderer.dispose();
     detector = null;
     fdet = null;
+    pdet = null;
+    wingRenderer = null;
+    wingScene = null;
+    wingCam = null;
+    wingRoot = null;
     video.pause();
     video.srcObject = null;
     document.body.classList.remove("cam");

@@ -13,10 +13,12 @@
   "dependencies": {
     "@mediapipe/face_mesh": "0.4.1633559619",
     "@mediapipe/hands": "0.4.1675469240",
+    "@mediapipe/pose": "^0.5.1675469404",
     "@techstark/opencv-js": "4.12.0-release.1",
     "next": "16.4.3",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "three": "^0.187.0"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
