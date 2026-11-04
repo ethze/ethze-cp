@@ -1,6 +1,6 @@
 # ethze-cp
 
-Next.js port of the ethze landing page, including the WebGL logo.
+Next.js port of the ethze landing page, including the WebGL logo and the camera hand/eye tracking demo.
 
 ## Stack
 
@@ -8,6 +8,8 @@ Next.js port of the ethze landing page, including the WebGL logo.
 - React 19
 - TypeScript
 - SCSS
+- MediaPipe
+- OpenCV.js
 
 ## Setup
 
@@ -15,6 +17,8 @@ Next.js port of the ethze landing page, including the WebGL logo.
 pnpm install
 pnpm dev
 ```
+
+`pnpm install` copies the OpenCV and MediaPipe runtimes into `public/vendor/`. That folder is generated and ignored by git.
 
 ## Build
 
